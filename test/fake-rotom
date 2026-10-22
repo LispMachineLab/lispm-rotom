@@ -1,0 +1,93 @@
+#!/bin/bash
+# A stand-in for rotom, for lispm-rotom's tests: it answers as rotom does,
+# from what it keeps in $FAKE_ROTOM_DIR, and signs in to no account.
+#
+#   accounts   the providers signed in to, one a line
+#   installed  there once the daemon is a service of the system
+#   running    there while the daemon runs
+#   calls      the arguments of every call, one call a line
+dir=${FAKE_ROTOM_DIR:?}
+echo "$*" >> "$dir/calls"
+case "$1" in
+  status)
+    if [ ! -s "$dir/accounts" ]; then
+      echo "error: configuration error: not logged in; run \`rotom login\` first" >&2
+      exit 1
+    fi
+    echo "rotom: 9.9.9"
+    while read -r provider; do
+      echo
+      echo "provider: $provider"
+      case $provider in
+        vercel) echo "token: token does not expire automatically (Vercel AI Gateway credentials)" ;;
+        grok) echo "token: token expires in 3h 12m 57s (Grok credentials)" ;;
+        kiro) echo "token: refresh failed (Kiro credentials)" ;;
+        *) echo "token: token expires in 7d 00h 18m 57s (Codex credentials)" ;;
+      esac
+      if [ "$provider" = kiro ]; then echo "status: refresh failed"; else echo "status: authenticated"; fi
+      echo "highlight_models:"
+      echo "  $provider-best"
+    done < "$dir/accounts"
+    if [ -e "$dir/running" ]; then
+      echo
+      echo "daemon: running at http://127.0.0.1:14550"
+      echo "endpoints:"
+      echo "  GET        http://127.0.0.1:14550/health"
+    fi
+    ;;
+  models)
+    printf 'OpenAI (codex)\n  gpt-6-astra\n  gpt-6.1-sol\n\nGrok (grok)\n  grok-4.7\n\n'
+    printf 'Kiro (kiro)\n  auto\n  kiro/gpt-5.6-sol\n\nVercel AI Gateway (vercel)\n  openai/gpt-6.1-sol\n'
+    ;;
+  daemon)
+    case "$2" in
+      status)
+        if [ -e "$dir/installed" ]; then installed=yes; else installed=no; fi
+        printf 'rotom daemon (RUNNING)\n----------------\n   Manager  launchd\n Installed  \033[1m%s\033[0m\n    Loaded  %s\n' \
+               "$installed" "$installed"
+        ;;
+      install) touch "$dir/installed" ;;
+      start)
+        if [ ! -e "$dir/installed" ]; then
+          echo "error: daemon is not installed; run \`rotom daemon install\` first" >&2
+          exit 1
+        fi
+        touch "$dir/running"
+        ;;
+      restart) touch "$dir/running" ;;
+      stop) rm -f "$dir/running" ;;
+    esac
+    ;;
+  refresh) echo "refreshed Codex credentials" ;;
+  login)
+    provider=$3
+    if [ "$provider" = vercel ]; then
+      printf 'Vercel AI Gateway API key: '
+      read -r key
+      echo "$key" > "$dir/vercel-key"
+      echo vercel >> "$dir/accounts"
+      echo "saved Vercel AI Gateway credentials to $dir/auth.json"
+      exit 0
+    fi
+    port=${FAKE_ROTOM_PORT:-1455}
+    echo "Open this URL to authenticate with Grok:"
+    echo "https://auth.example.com/authorize?response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A$port%2Fcallback&state=s7"
+    echo
+    echo "After login, your browser may fail to load the localhost callback. Copy the full address from the browser address bar and paste it here."
+    printf 'Paste the full redirect URL or authorization code: '
+    read -r answer
+    echo "$answer" > "$dir/answer"
+    case "$answer" in
+      *code=c0de*state=s7*) ;;
+      *) echo "error: OAuth error: state mismatch" >&2; exit 1 ;;
+    esac
+    if ! grep -qx "$provider" "$dir/accounts" 2>/dev/null; then
+      echo "$provider" >> "$dir/accounts"
+      new=1
+    fi
+    echo "logged in Grok credentials and saved credentials to $dir/auth.json"
+    if [ -n "$new" ]; then
+      echo "If rotom daemon is already running, run \`rotom daemon restart\` to serve newly logged-in Grok models."
+    fi
+    ;;
+esac
