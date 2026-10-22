@@ -154,7 +154,7 @@
                                              'face 'lispm-rotom-dim))))
     (when (lispm-rotom-running-p)
       (lispm-rotom--line nil ""
-                         (propertize (format "OpenAI's API at %s/v1, Anthropic's at %s" url url)
+                         (propertize "OpenAI's API under /v1, Anthropic's at the root"
                                      'face 'lispm-rotom-dim)))))
 
 (defun lispm-rotom--insert-lispm ()
@@ -163,9 +163,10 @@
     (lispm-rotom--line
      '(lispm) "LispM's agents"
      (cond ((not (plist-get lispm :rotom))
-            (concat (propertize (format "Use %s, not Rotom" (or (plist-get lispm :backend) "no backend"))
-                                'face 'lispm-rotom-dim)
-                    (propertize ": u chooses a model" 'face 'lispm-rotom-dim)))
+            (propertize (if (plist-get lispm :backend)
+                            (format "Use %s, not Rotom: u chooses one of its models" (plist-get lispm :backend))
+                          "No backend yet: u chooses one of Rotom's models")
+                        'face 'lispm-rotom-dim))
            ((plist-get lispm :listed)
             (format "Use %s through Rotom" (plist-get lispm :model)))
            (t (concat (format "Use %s through Rotom" (plist-get lispm :model))
@@ -412,6 +413,9 @@ and the model LispM's agents use.
 \\{lispm-rotom-mode-map}"
   (setq truncate-lines t
         buffer-read-only t)
+  ;; A line cut at the window's edge ends in an ellipsis, not a dollar.
+  (setq buffer-display-table (or (copy-sequence buffer-display-table) (make-display-table)))
+  (set-display-table-slot buffer-display-table 'truncation ?…)
   (setq-local revert-buffer-function #'lispm-rotom-reload))
 
 ;;;###autoload
