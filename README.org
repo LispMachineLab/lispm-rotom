@@ -1,0 +1,87 @@
+#+title: LispM Rotom
+
+#+HTML: <p align="center"><a href="https://github.com/LispMachineLab/lispm-rotom/actions/workflows/test.yml"><img src="https://github.com/LispMachineLab/lispm-rotom/actions/workflows/test.yml/badge.svg" alt="test" /></a></p>
+
+[[https://github.com/RyanKung/rotom][Rotom]] in Emacs: a gateway on this machine to the models of your accounts, OpenAI's Codex,
+xAI's Grok, Kiro and Vercel's AI Gateway, for any program speaking OpenAI's API or Anthropic's.
+Its window shows whether its daemon runs, the accounts signed in to it and the models they
+offer; from it the daemon is started and stopped, accounts are signed in to, and a model is chosen
+for LispM's agents.  It is an application of [[https://github.com/LispMachineLab/lispm-desktop][LispM Desktop]], which its App Store installs, and
+works in any Emacs 30.1 or later.  In code, the prefix is ~lispm-rotom-~.
+
+* What it needs
+
+- *rotom*, Rotom's program: =cargo install --locked rotom=, with Cargo, Rust's package manager.
+  In LispM Desktop, the App Store installs it when the application first opens; while it is
+  missing, the window says so, with the command.
+- *curl*, which reads Rotom's daemon over HTTP: macOS has it.
+
+* Using it
+
+=M-x lispm-rotom= opens its window: the daemon, LispM's agents, the accounts, the models.
+
+| =RET=   | on an account, sign in to it; on a model, have LispM's agents use it; on the daemon, start or stop it |
+| =s=     | start the daemon, made a service of the system first if it is not; or stop it   |
+| =r=     | restart the daemon                                                                |
+| =l=     | sign in to an account: the one on the line, or one asked for                     |
+| =P=     | paste the address the browser shows, while signing in                            |
+| =c=     | stop signing in                                                                   |
+| =R=     | refresh the accounts' tokens                                                      |
+| =u=     | have LispM's agents use the model on the line, or one asked for                  |
+| =x=     | have LispM's agents no longer use Rotom                                           |
+| =w=     | copy the model on the line, or the daemon's address                               |
+| =v=     | view what the daemon wrote to its log of errors                                   |
+| =U=     | update Rotom, built anew by Cargo, then restart the daemon                        |
+| =g=     | read Rotom again                                                                  |
+| =n= =p= | the next and the previous line                                                    |
+
+In LispM Desktop, the App Store's Rotom opens in a window of its own, with buttons for its main
+commands and a page saying what to do while Rotom is missing or no account is signed in.
+
+* Signing in
+
+Codex, Grok and Kiro are signed in to in your browser, the system's, where their sites know you.
+Rotom then asks for the address the browser lands on once you are signed in, a page of this
+machine that nothing serves.  While it asks, Emacs serves that address: the browser lands on
+Emacs, which hands the address to Rotom, and the page says you are signed in.  Where Emacs cannot
+listen there, as when another program holds the port, the address is asked in the minibuffer;
+=P= asks for it any time.
+
+Vercel's AI Gateway takes a key instead: it is read in the minibuffer, handed to Rotom on its
+standard input and forgotten.  Rotom keeps the accounts' credentials in its own directory,
+=~/.rotom/=; this application never reads them.
+
+An account new to a daemon running is served once it restarts, which it then does.
+
+* LispM's agents
+
+Rotom's two sides are backends of [[https://github.com/LispMachineLab/lispm-agent][LispM Agent]]: ~rotom~, OpenAI's Chat Completions, at
+=http://127.0.0.1:14550/v1=, and ~rotom-messages~, Anthropic's Messages, at =http://127.0.0.1:14550=,
+or where Rotom's configuration has its daemon listen.  They are added to ~lispm-backends~ once
+LispM is loaded, unless entries of those names are there already, and change nothing else.
+
+=u= has LispM's agents use a model through Rotom: it saves ~lispm-backend~ and ~lispm-model~ with
+Customize, for the conversations started after; an agent's conversation open already switches
+with its =/model=.  =x= sets both back to nil.  The window warns when the model LispM's agents use
+is one Rotom does not offer through an account signed in to.
+
+* Agents
+
+LispM Store's skill /Use Rotom/ is the manual of this application for LispM's agents, with
+tools reading Rotom's state, its models and its log, refreshing its tokens, starting and stopping
+its daemon, and choosing the model LispM's agents use: the App Store installs it with Rotom.
+Signing in stays yours, in the browser.
+
+* Tests
+
+=make test compile= runs the tests and byte-compiles the files, warnings as errors.  The tests run
+[[file:test/fake-rotom][test/fake-rotom]] in place of rotom and [[file:test/fake-curl][test/fake-curl]] in place of curl, which answer as Rotom does
+from a directory of their own: no daemon is started, no account signed in to, and the browser
+signing in is a request the test makes itself.  With LispM Agent's =lisp/= beside this checkout,
+or named by ~LISPM_AGENT~, the test of LispM's backends runs too.
+
+* License
+
+Copyright (C) 2026 Ryan.K.  Free software under the GNU Affero General Public License, version 3
+or later (see [[file:LICENSE][LICENSE]]).  Rotom itself is RyanKung's, under the GNU LGPL, version 3; this
+application runs its program, as a terminal would.

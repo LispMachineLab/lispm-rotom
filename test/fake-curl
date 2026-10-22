@@ -1,0 +1,20 @@
+#!/bin/bash
+# A stand-in for curl reaching Rotom's daemon, for lispm-rotom's tests: it
+# answers while $FAKE_ROTOM_DIR/running is there, and keeps the
+# configuration it was handed on its standard input in curl-config.
+dir=${FAKE_ROTOM_DIR:?}
+url="${@: -1}"
+cat > "$dir/curl-config"
+if [ ! -e "$dir/running" ]; then
+  echo "curl: (7) Failed to connect to 127.0.0.1 port 14550 after 0 ms: Couldn't connect to server" >&2
+  exit 7
+fi
+case "$url" in
+  */health) code=200; body='{"status":"ok"}' ;;
+  */v1/status)
+    code=200
+    body='{"provider":"codex","account_id":"x","credits_balance":35511.2,"rate_limits":[{"name":"5h","remaining_percent":12.0,"reset_at_local":"2026-10-27 15:45:42 +08:00"}],"warnings":[]}'
+    ;;
+  *) code=404; body='{"error":{"message":"not found"}}' ;;
+esac
+printf '%s\n__LISPM_ROTOM_STATUS__:%s' "$body" "$code"
