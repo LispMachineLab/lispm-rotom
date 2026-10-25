@@ -5,7 +5,7 @@
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-rotom
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1"))
+;; Package-Requires: ((emacs "30.1") (lispm-kit "0.1.0"))
 ;; Keywords: tools, comm
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 

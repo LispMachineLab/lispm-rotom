@@ -507,6 +507,62 @@ bound to `dir', and Rotom's state forgotten before and after."
         (when (get-buffer lispm-rotom-buffer-name)
           (kill-buffer lispm-rotom-buffer-name))))))
 
+(defun lispm-rotom-test--menu ()
+  "Return Rotom's menu as it shows now: (LABEL COMMAND ENABLED), or
+`separator'."
+  (let ((items nil))
+    (map-keymap (lambda (_key binding)
+                  (pcase binding
+                    (`(menu-item ,name ,command . ,properties)
+                     (push (list (if (stringp name) name (eval name t)) command
+                                 (or (not (plist-member properties :enable))
+                                     (and (eval (plist-get properties :enable) t) t)))
+                           items))
+                    (_ (push 'separator items))))
+                (keymap-lookup lispm-rotom-mode-map "<menu-bar> <rotom>"))
+    (nreverse items)))
+
+(ert-deftest lispm-rotom-test-commands-agree ()
+  "Rotom's keys, menu and main commands are declared once, so they agree:
+Restart while the daemon runs, Sign In while no account is being signed
+in to, Use for LispM once there are models."
+  (let ((commands (get 'lispm-rotom-mode 'lispm-kit-commands)))
+    ;; Every key of the window is one declared.
+    (map-keymap (lambda (_key binding)
+                  (unless (keymapp binding)
+                    (should (seq-find (lambda (command) (eq (plist-get command :command) binding)) commands))))
+                lispm-rotom-mode-map)
+    (should (equal (seq-keep (lambda (command) (and (plist-get command :button) (plist-get command :command)))
+                             commands)
+                   '(lispm-rotom-start-or-stop lispm-rotom-restart lispm-rotom-sign-in-here
+                     lispm-rotom-refresh-tokens lispm-rotom-use-here)))
+    (cl-flet ((state (running signing-in)
+                (cl-letf (((symbol-function 'lispm-rotom-installed-p) (lambda () "/bin/rotom"))
+                          ((symbol-function 'lispm-rotom-running-p) (lambda () running))
+                          ((symbol-function 'lispm-rotom--signing-in-p) (lambda () signing-in))
+                          ((symbol-function 'lispm-rotom-model-ids) (lambda () nil)))
+                  (let ((lispm-rotom-busy nil))
+                    (list (lispm-rotom-test--menu)
+                          (mapcar (lambda (command)
+                                    (when-let* ((button (plist-get command :button)))
+                                      (list (if (functionp button) (funcall button) button)
+                                            (and (funcall (plist-get command :enabled)) t))))
+                                  commands))))))
+      (pcase-let ((`(,menu ,buttons) (state nil nil)))
+        (should (member '("Start Daemon" lispm-rotom-start-or-stop t) menu))
+        (should (member '("Restart Daemon" lispm-rotom-restart nil) menu))
+        (should (member '("Sign In…" lispm-rotom-sign-in-here t) menu))
+        (should (member '("Start" t) buttons))
+        (should (member '("Restart" nil) buttons))
+        (should (member '("Use for LispM…" nil) buttons)))
+      (pcase-let ((`(,menu ,buttons) (state t t)))
+        (should (member '("Stop Daemon" lispm-rotom-start-or-stop t) menu))
+        (should (member '("Restart Daemon" lispm-rotom-restart t) menu))
+        (should (member '("Sign In…" lispm-rotom-sign-in-here nil) menu))
+        (should (member '("Stop" t) buttons))
+        (should (member '("Restart" t) buttons))
+        (should (member '("Sign In…" nil) buttons))))))
+
 (ert-deftest lispm-rotom-test-knows-no-desktop ()
   "Rotom's code names nothing of LispM Desktop's: the desktop dresses it."
   (dolist (file '("lispm-rotom.el" "lispm-rotom-ui.el"))

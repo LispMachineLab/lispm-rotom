@@ -48,6 +48,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'text-property-search)
+(require 'lispm-kit-commands)
 (require 'lispm-rotom)
 
 (defface lispm-rotom-heading '((t :inherit bold))
@@ -357,55 +358,58 @@ its daemon.  It takes some minutes; what Cargo says shows in a buffer."
 
 ;;;; The window
 
-(defvar-keymap lispm-rotom-mode-map
-  :doc "Keys of Rotom's window."
-  "RET" #'lispm-rotom-act
-  "s" #'lispm-rotom-start-or-stop
-  "r" #'lispm-rotom-restart
-  "l" #'lispm-rotom-sign-in-here
-  "P" #'lispm-rotom-paste-address
-  "c" #'lispm-rotom-cancel-sign-in
-  "R" #'lispm-rotom-refresh-tokens
-  "u" #'lispm-rotom-use-here
-  "x" #'lispm-rotom-stop-using
-  "w" #'lispm-rotom-copy
-  "v" #'lispm-rotom-show-log
-  "U" #'lispm-rotom-update
-  "g" #'lispm-rotom-reload
-  "n" #'lispm-rotom-next-line
-  "p" #'lispm-rotom-previous-line)
-
 (defun lispm-rotom--signing-in-p ()
   "Return non-nil while an account is being signed in to."
   (and lispm-rotom-signing-in
        (process-live-p (lispm-rotom-sign-in-process lispm-rotom-signing-in))))
 
-(easy-menu-define lispm-rotom-menu lispm-rotom-mode-map
-  "Rotom's menu."
-  '("Rotom"
-    ["Start Daemon" lispm-rotom-start
-     :active (and (lispm-rotom-installed-p) (not (lispm-rotom-running-p)) (not lispm-rotom-busy))]
-    ["Stop Daemon" lispm-rotom-start-or-stop
-     :active (and (lispm-rotom-running-p) (not lispm-rotom-busy))]
-    ["Restart Daemon" lispm-rotom-restart
-     :active (and (lispm-rotom-installed-p) (not lispm-rotom-busy))]
-    "---"
-    ["Sign In…" lispm-rotom-sign-in-here
-     :active (and (lispm-rotom-installed-p) (not (lispm-rotom--signing-in-p)))]
-    ["Paste Address…" lispm-rotom-paste-address :active (lispm-rotom--signing-in-p)]
-    ["Stop Signing In" lispm-rotom-cancel-sign-in :active (lispm-rotom--signing-in-p)]
-    ["Refresh Tokens" lispm-rotom-refresh-tokens
-     :active (and lispm-rotom-accounts (not lispm-rotom-busy))]
-    "---"
-    ["Use Model for LispM…" lispm-rotom-use-here
-     :active (and (featurep 'lispm-core) (lispm-rotom-model-ids))]
-    ["Stop Using Rotom for LispM" lispm-rotom-stop-using
-     :active (plist-get (lispm-rotom-lispm) :rotom)]
-    "---"
-    ["Copy" lispm-rotom-copy :active (memq lispm-rotom-state '(ready no-account))]
-    ["Show Log" lispm-rotom-show-log :active (file-readable-p (lispm-rotom-log-file))]
-    ["Update Rotom…" lispm-rotom-update :active (and (lispm-rotom-installed-p) (not lispm-rotom-busy))]
-    ["Read Again" lispm-rotom-reload]))
+;; Each command once: its keys, what they do, its item of the Rotom menu
+;; and, for the main ones, the words of a button, for an interface
+;; showing them as buttons.
+(lispm-kit-define-commands lispm-rotom-mode
+  (lispm-rotom-act :key "RET" :help "Sign in, use the model, or start the daemon")
+  :menu "Rotom"
+  (lispm-rotom-start-or-stop
+   :key "s" :help "Start or stop the daemon"
+   :label (if (lispm-rotom-running-p) "Stop Daemon" "Start Daemon")
+   :button (if (lispm-rotom-running-p) "Stop" "Start")
+   :enabled (and (lispm-rotom-installed-p) (not lispm-rotom-busy)))
+  (lispm-rotom-restart
+   :key "r" :help "Restart the daemon" :label "Restart Daemon" :button "Restart"
+   :enabled (and (lispm-rotom-running-p) (not lispm-rotom-busy)))
+  "---"
+  (lispm-rotom-sign-in-here
+   :key "l" :help "Sign in to an account" :label "Sign In…" :button t
+   :enabled (and (lispm-rotom-installed-p) (not (lispm-rotom--signing-in-p))))
+  (lispm-rotom-paste-address
+   :key "P" :help "Paste the address the browser shows" :label "Paste Address…"
+   :enabled (lispm-rotom--signing-in-p))
+  (lispm-rotom-cancel-sign-in
+   :key "c" :help "Stop signing in" :label "Stop Signing In" :enabled (lispm-rotom--signing-in-p))
+  (lispm-rotom-refresh-tokens
+   :key "R" :help "Refresh the tokens" :label "Refresh Tokens" :button t
+   :enabled (and lispm-rotom-accounts (not lispm-rotom-busy)))
+  "---"
+  (lispm-rotom-use-here
+   :key "u" :help "Have LispM's agents use the model"
+   :label "Use Model for LispM…" :button "Use for LispM…"
+   :enabled (and (featurep 'lispm-core) (lispm-rotom-model-ids)))
+  (lispm-rotom-stop-using
+   :key "x" :help "Have LispM's agents stop using Rotom" :label "Stop Using Rotom for LispM"
+   :enabled (plist-get (lispm-rotom-lispm) :rotom))
+  "---"
+  (lispm-rotom-copy
+   :key "w" :help "Copy the model or the address" :label "Copy"
+   :enabled (memq lispm-rotom-state '(ready no-account)))
+  (lispm-rotom-show-log
+   :key "v" :help "View the daemon's log" :label "Show Log"
+   :enabled (file-readable-p (lispm-rotom-log-file)))
+  (lispm-rotom-update
+   :key "U" :help "Update Rotom" :label "Update Rotom…"
+   :enabled (and (lispm-rotom-installed-p) (not lispm-rotom-busy)))
+  (lispm-rotom-reload :key "g" :help "Read Rotom again" :label "Read Again")
+  (lispm-rotom-next-line :key "n" :help "Next line")
+  (lispm-rotom-previous-line :key "p" :help "Previous line"))
 
 (define-derived-mode lispm-rotom-mode special-mode "Rotom"
   "Rotom's window: its daemon, the accounts signed in to it, its models,
