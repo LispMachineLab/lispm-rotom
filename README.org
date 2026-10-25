@@ -15,6 +15,8 @@ works in any Emacs 30.1 or later.  In code, the prefix is ~lispm-rotom-~.
   In LispM Desktop, the App Store installs it when the application first opens; while it is
   missing, the window says so, with the command.
 - *curl*, which reads Rotom's daemon over HTTP: macOS has it.
+- *lispm-kit*, [[https://github.com/LispMachineLab/lispm-kit][LispM Kit]], with which its window declares each command once: its key, its menu
+  item and, for the main ones, the words of a button.  The App Store installs it first.
 
 * Using it
 
@@ -78,7 +80,8 @@ Signing in stays yours, in the browser.
 [[file:test/fake-rotom][test/fake-rotom]] in place of rotom and [[file:test/fake-curl][test/fake-curl]] in place of curl, which answer as Rotom does
 from a directory of their own: no daemon is started, no account signed in to, and the browser
 signing in is a request the test makes itself.  With LispM Agent's =lisp/= beside this checkout,
-or named by ~LISPM_AGENT~, the test of LispM's backends runs too.
+or named by ~LISPM_AGENT~, the test of LispM's backends runs too.  LispM Kit is a checkout beside
+this one, or named by ~LISPM_KIT~.
 
 * License
 

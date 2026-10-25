@@ -18,6 +18,11 @@ jobs:
         emacs: ['30.1', '31.1']
     steps:
       - uses: actions/checkout@v7
+      # LispM Kit, with which Rotom declares its commands.
+      - uses: actions/checkout@v7
+        with:
+          repository: LispMachineLab/lispm-kit
+          path: .deps/lispm-kit
       # The agent whose backends Rotom adds to, from its own repository,
       # for the test of how it does.
       - uses: actions/checkout@v7
@@ -28,4 +33,4 @@ jobs:
         with:
           version: ${{ matrix.emacs }}
       - name: Test
-        run: make test compile LISPM_AGENT=.deps/lispm-agent/lisp
+        run: make test compile LISPM_AGENT=.deps/lispm-agent/lisp LISPM_KIT=.deps/lispm-kit
