@@ -15,10 +15,20 @@ works in any Emacs 30.1 or later.  In code, the prefix is ~lispm-rotom-~.
   In LispM Desktop, the App Store installs it when the application first opens; while it is
   missing, the window says so, with the command.
 - *curl*, which reads Rotom's daemon over HTTP: macOS has it.
+- *lispm-ui* 0.5.0 or later, for the dashboard's controls, menus and keyboard focus.
 - *lispm-kit*, [[https://github.com/LispMachineLab/lispm-kit][LispM Kit]], with which its window declares each command once: its key, its menu
   item and, for the main ones, the words of a button.  The App Store installs it first.
 
 * Using it
+
+The window uses LispM UI controls: clickable service buttons, account sign-in buttons,
+and model cards with *Use for LispM* and *Copy model*.  *Overview*, *Accounts* and *Models*
+switch sections without restarting or changing Rotom.  In Models, choose a provider,
+use *Find model…* (=/=) to search by name, and select OpenAI Chat Completions or Anthropic
+Messages before choosing a model.  Filters remain in place when the service refreshes.
+=TAB= and =S-TAB= move between controls; =RET= or =SPC= activates one.  The same controls
+work in a text terminal.  Model selection changes the defaults for new LispM conversations.
+
 
 =M-x lispm-rotom= opens its window: the daemon, LispM's agents, the accounts, the models.
 
@@ -80,8 +90,8 @@ Signing in stays yours, in the browser.
 [[file:test/fake-rotom][test/fake-rotom]] in place of rotom and [[file:test/fake-curl][test/fake-curl]] in place of curl, which answer as Rotom does
 from a directory of their own: no daemon is started, no account signed in to, and the browser
 signing in is a request the test makes itself.  With LispM Agent's =lisp/= beside this checkout,
-or named by ~LISPM_AGENT~, the test of LispM's backends runs too.  LispM Kit is a checkout beside
-this one, or named by ~LISPM_KIT~.
+or named by ~LISPM_AGENT~, the test of LispM's backends runs too.  LispM Kit and LispM UI are checkouts beside
+this one, or named by ~LISPM_KIT~ and ~LISPM_UI~.
 
 * License
 

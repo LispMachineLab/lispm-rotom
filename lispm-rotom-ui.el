@@ -49,6 +49,8 @@
 (require 'subr-x)
 (require 'text-property-search)
 (require 'lispm-kit-commands)
+(require 'lispm-ui-controls)
+(require 'lispm-ui-menu)
 (require 'lispm-rotom)
 
 (defface lispm-rotom-heading '((t :inherit bold))
@@ -74,7 +76,94 @@
   "Column the second column of Rotom's window starts at.")
 
 (defconst lispm-rotom-third-column 46
-  "Column the third column of the models starts at.")
+  "Column the optional third column starts at.")
+
+(defvar-local lispm-rotom-view 'all
+  "Section shown in the dashboard: all, accounts or models.")
+
+(defvar-local lispm-rotom-model-filter ""
+  "Literal, case-insensitive model search in this window.")
+
+(defvar-local lispm-rotom-provider-filter 'all
+  "Provider shown in this window, or `all'.")
+
+(defvar-local lispm-rotom-messages nil
+  "Whether model buttons choose Anthropic Messages for LispM.")
+
+(defun lispm-rotom-filter-models ()
+  "Filter the model list by a literal name."
+  (interactive)
+  (setq lispm-rotom-model-filter
+        (read-string "Find model: " lispm-rotom-model-filter)
+        lispm-rotom-view 'models)
+  (lispm-rotom--print))
+
+(defun lispm-rotom--button (label action &optional disabled)
+  "Insert a control with LABEL calling ACTION, optionally DISABLED."
+  (lispm-ui-insert-push-button label action :disabled disabled)
+  (insert "  "))
+
+(defun lispm-rotom--command-button (name)
+  "Draw NAME from the shared command declaration."
+  (let* ((entry (seq-find (lambda (entry) (eq name (plist-get entry :command)))
+                          (get 'lispm-rotom-mode 'lispm-kit-commands)))
+         (label (or (plist-get entry :button) (plist-get entry :label)))
+         (enabled (plist-get entry :enabled)))
+    (lispm-rotom--button
+     (if (functionp label) (funcall label) label)
+     (lambda () (call-interactively name))
+     (and enabled (not (funcall enabled))))))
+
+(defun lispm-rotom--navigation ()
+  "Insert navigation controls without changing the service state."
+  (insert "  ")
+  (dolist (entry '((all . "Overview") (accounts . "Accounts") (models . "Models")))
+    (let ((view (car entry)))
+      (lispm-ui-insert-radio-button
+       (cdr entry) (eq lispm-rotom-view view)
+       (lambda () (setq lispm-rotom-view view) (lispm-rotom--print)))
+      (insert "    ")))
+  (insert "\n\n"))
+
+(defun lispm-rotom--toolbar ()
+  "Insert the service controls, including progress and login recovery."
+  (insert "  ")
+  (dolist (command '(lispm-rotom-start-or-stop lispm-rotom-restart
+                     lispm-rotom-reload lispm-rotom-show-log))
+    (lispm-rotom--command-button command))
+  (insert "\n\n")
+  (when (lispm-rotom--signing-in-p)
+    (insert "  ")
+    (lispm-rotom--command-button 'lispm-rotom-paste-address)
+    (lispm-rotom--command-button 'lispm-rotom-cancel-sign-in)
+    (insert "\n\n")))
+
+(defun lispm-rotom--model-controls ()
+  "Insert model search, provider and API controls."
+  (insert "  ")
+  (lispm-ui-insert-popup-button
+   (if (eq lispm-rotom-provider-filter 'all) "All providers"
+     (lispm-rotom-provider-name lispm-rotom-provider-filter))
+   (cons '(all . "All providers")
+         (mapcar (lambda (entry) (cons (car entry) (lispm-rotom-provider-name (car entry))))
+                 lispm-rotom-models))
+   (lambda (provider) (setq lispm-rotom-provider-filter provider) (lispm-rotom--print))
+   :current lispm-rotom-provider-filter)
+  (insert "  ")
+  (lispm-rotom--button "Find model…" #'lispm-rotom-filter-models)
+  (unless (string-empty-p lispm-rotom-model-filter)
+    (lispm-rotom--button "Clear"
+                         (lambda () (setq lispm-rotom-model-filter "") (lispm-rotom--print))))
+  (insert "\n\n  ")
+  (lispm-ui-insert-popup-button
+   (if lispm-rotom-messages "Anthropic Messages" "OpenAI Chat Completions")
+   '((chat . "OpenAI Chat Completions") (messages . "Anthropic Messages"))
+   (lambda (api) (setq lispm-rotom-messages (eq api 'messages)) (lispm-rotom--print))
+   :current (if lispm-rotom-messages 'messages 'chat))
+  (insert "\n  Applies to new LispM conversations; use /model in an existing chat.\n")
+  (unless (string-empty-p lispm-rotom-model-filter)
+    (insert (format "  Matching: %s\n" lispm-rotom-model-filter)))
+  (insert "\n"))
 
 ;;;; What the line is about
 
@@ -140,7 +229,12 @@
   (when lispm-rotom-install-command
     (insert "\nIt is installed with Cargo, Rust's package manager:\n\n    "
             lispm-rotom-install-command "\n"))
-  (insert "\nThen g reads it again.\n"))
+  (insert "\n  ")
+  (when lispm-rotom-install-command
+    (lispm-rotom--button "Copy install command"
+                         (lambda () (kill-new lispm-rotom-install-command))))
+  (lispm-rotom--button "Read Again" #'lispm-rotom-reload)
+  (insert "\n"))
 
 (defun lispm-rotom--insert-daemon ()
   "Insert the line of the daemon."
@@ -176,8 +270,12 @@
 (defun lispm-rotom--insert-accounts ()
   "Insert the accounts, signed in or not."
   (lispm-rotom--heading "Accounts")
+  (insert "  ")
+  (lispm-rotom--command-button 'lispm-rotom-refresh-tokens)
+  (insert "\n\n")
   (pcase-dolist (`(,provider . ,properties) lispm-rotom-providers)
-    (let ((account (lispm-rotom-account provider)))
+    (let ((account (lispm-rotom-account provider))
+          (start (point)))
       (lispm-rotom--line
        (cons 'account provider)
        (concat (lispm-rotom--mark account) " " (plist-get properties :name))
@@ -186,34 +284,57 @@
                   (eql (plist-get account :expires) 0))
               (propertize (concat "Signed in, " (lispm-rotom-account-text account)) 'face 'lispm-rotom-bad))
              (t (concat "Signed in, " (lispm-rotom-account-text account)))))
+      (insert "    ")
+      (lispm-rotom--button
+       (if account "Sign in again…" "Sign in…")
+       (lambda () (lispm-rotom-sign-in provider))
+       (or lispm-rotom-busy (lispm-rotom--signing-in-p)))
+      (insert "\n\n")
       (when (and account (equal (symbol-name provider) (plist-get lispm-rotom-served :provider)))
         (when-let* ((limits (lispm-rotom-limits-text)))
-          (lispm-rotom--line (cons 'account provider) "" (propertize limits 'face 'lispm-rotom-dim)))))))
+          (lispm-rotom--line (cons 'account provider) "" (propertize limits 'face 'lispm-rotom-dim))))
+      (put-text-property start (point) 'lispm-rotom-item (cons 'account provider)))))
 
 (defun lispm-rotom--insert-models ()
-  "Insert the models, by account, those of accounts signed in first."
+  "Insert searchable model cards with explicit actions."
   (lispm-rotom--heading "Models")
+  (lispm-rotom--model-controls)
   (let* ((lispm (lispm-rotom-lispm))
          (used (and (plist-get lispm :rotom) (plist-get lispm :model)))
-         (entries (append (seq-filter (lambda (entry) (lispm-rotom-signed-in-p (car entry))) lispm-rotom-models)
-                          (seq-remove (lambda (entry) (lispm-rotom-signed-in-p (car entry))) lispm-rotom-models))))
-    (if (null entries)
-        (insert (propertize "  Rotom lists no models.\n" 'face 'lispm-rotom-dim))
-      (pcase-dolist (`(,provider . ,models) entries)
-        (let ((served (lispm-rotom-signed-in-p provider)))
-          (dolist (model models)
-            (lispm-rotom--line
-             (cons 'model model)
-             (propertize model 'face (if served 'default 'lispm-rotom-dim))
-             (propertize (lispm-rotom-provider-name provider) 'face 'lispm-rotom-dim)
-             (cond ((equal model used) (propertize "LispM's agents use it" 'face 'lispm-rotom-good))
-                   ((not served) (propertize "not signed in" 'face 'lispm-rotom-dim))
-                   (t "")))))))))
+         (count 0)
+         (case-fold-search t))
+    (pcase-dolist (`(,provider . ,models) lispm-rotom-models)
+      (when (or (eq lispm-rotom-provider-filter 'all)
+                (eq lispm-rotom-provider-filter provider))
+        (dolist (model models)
+          (when (string-match-p (regexp-quote lispm-rotom-model-filter) model)
+            (cl-incf count)
+            (let ((start (point))
+                  (served (lispm-rotom-signed-in-p provider)))
+              (insert "  " (propertize model 'face 'bold) "\n    "
+                      (lispm-rotom-provider-name provider)
+                      (cond ((equal model used) " · LispM's agents use it")
+                            ((not served) " · not signed in")
+                            (t " · Available")) "\n    ")
+              (lispm-rotom--button
+               "Use for LispM"
+               (lambda ()
+                 (when (yes-or-no-p (format "Use %s for new LispM conversations? " model))
+                   (lispm-rotom-use model lispm-rotom-messages)))
+               (or (not served) (not (featurep 'lispm-core)) lispm-rotom-busy))
+              (lispm-rotom--button "Copy model"
+                                   (lambda () (kill-new model) (message "Copied %s" model)))
+              (insert "\n\n")
+              (put-text-property start (point) 'lispm-rotom-item (cons 'model model)))))))
+    (when (zerop count)
+      (insert (propertize "  No matching models. Try another provider or clear the search.\n"
+                          'face 'lispm-rotom-dim)))))
 
 (defun lispm-rotom--print ()
   "Show where Rotom stands in the current buffer, point kept on its line."
   (let ((item (lispm-rotom-item))
         (column (current-column))
+        (control (get-text-property (point) 'help-echo))
         (inhibit-read-only t))
     (erase-buffer)
     (pcase lispm-rotom-state
@@ -232,18 +353,27 @@
        (when lispm-rotom-message
          (insert (propertize lispm-rotom-message 'face 'lispm-rotom-bad) "\n"))
        (insert "\n")
+       (lispm-rotom--toolbar)
        (lispm-rotom--insert-daemon)
        (lispm-rotom--insert-lispm)
        (when (eq lispm-rotom-state 'no-account)
          (insert "\n" (propertize "No account is signed in yet: l signs in to one." 'face 'lispm-rotom-bad) "\n"))
-       (lispm-rotom--insert-accounts)
-       (lispm-rotom--insert-models)))
+       (insert "\n")
+       (lispm-rotom--navigation)
+       (when (memq lispm-rotom-view '(all accounts)) (lispm-rotom--insert-accounts))
+       (when (memq lispm-rotom-view '(all models)) (lispm-rotom--insert-models))))
     (goto-char (point-min))
     (if-let* ((match (and item (text-property-search-forward 'lispm-rotom-item item #'equal))))
         (progn (goto-char (prop-match-beginning match))
                (move-to-column column))
       (goto-char (point-min))
-      (lispm-rotom-next-line))))
+      (lispm-rotom-next-line))
+    (when control
+      (let* ((start (if item (line-beginning-position) (point-min)))
+             (end (if item (or (next-single-property-change start 'lispm-rotom-item)
+                              (point-max)) (point-max)))
+             (position (text-property-any start end 'help-echo control)))
+        (when position (goto-char position))))))
 
 (defun lispm-rotom--refresh ()
   "Show what Rotom knows now in its window.
@@ -284,9 +414,10 @@ This is one of `lispm-rotom-changed-hook'."
   (let ((model (lispm-rotom--item-of 'model)))
     (if (and (stringp model)
              (yes-or-no-p (format "Have LispM's agents use %s through Rotom? " model)))
-        (lispm-rotom-use model)
+        (lispm-rotom-use model lispm-rotom-messages)
       (unless model
-        (call-interactively #'lispm-rotom-use)))))
+        (lispm-rotom-use (lispm-rotom--read-model "LispM's agents use")
+                         lispm-rotom-messages)))))
 
 (defun lispm-rotom-act ()
   "Do what the line at point is for: sign in to its account, have
@@ -299,7 +430,7 @@ LispM's agents use its model, start or stop the daemon."
        (lispm-rotom-sign-in provider)))
     (`(model . ,_) (lispm-rotom-use-here))
     ('(daemon) (lispm-rotom-start-or-stop))
-    ('(lispm) (call-interactively #'lispm-rotom-use))
+    ('(lispm) (lispm-rotom-use-here))
     (_ (user-error "Nothing to do on this line"))))
 
 (defun lispm-rotom-copy ()
@@ -368,6 +499,9 @@ its daemon.  It takes some minutes; what Cargo says shows in a buffer."
 ;; showing them as buttons.
 (lispm-kit-define-commands lispm-rotom-mode
   (lispm-rotom-act :key "RET" :help "Sign in, use the model, or start the daemon")
+  (forward-button :key "TAB" :help "Next control")
+  (backward-button :key "<backtab>" :help "Previous control")
+  (lispm-rotom-filter-models :key "/" :help "Find a model")
   :menu "Rotom"
   (lispm-rotom-start-or-stop
    :key "s" :help "Start or stop the daemon"
@@ -420,6 +554,11 @@ and the model LispM's agents use.
   ;; A line cut at the window's edge ends in an ellipsis, not a dollar.
   (setq buffer-display-table (or (copy-sequence buffer-display-table) (make-display-table)))
   (set-display-table-slot buffer-display-table 'truncation ?…)
+  (setq-local line-spacing 0.2)
+  (setq lispm-rotom-messages
+        (eq (plist-get (lispm-rotom-lispm) :backend) 'rotom-messages))
+  (add-hook 'post-command-hook #'lispm-ui-show-focus nil t)
+  (lispm-ui-palette-follow-theme)
   (setq-local revert-buffer-function #'lispm-rotom-reload))
 
 ;;;###autoload
