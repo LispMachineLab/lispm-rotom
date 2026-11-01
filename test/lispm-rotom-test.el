@@ -471,7 +471,7 @@ bound to `dir', and Rotom's state forgotten before and after."
                 (should (string-match-p "Running at http://127.0.0.1:14550" text))
                 (should (string-match-p "OpenAI (Codex) +Signed in, token for 7 days" text))
                 (should (string-match-p "Grok (xAI) +Not signed in" text))
-                (should (string-match-p "grok-4.7 +Grok (xAI) +not signed in" text)))
+                (should (string-match-p "grok-4.7\n +Grok (xAI) · not signed in" text)))
               ;; n and p go from item to item; point starts on the daemon.
               (should (equal (lispm-rotom-item) '(daemon)))
               (lispm-rotom-next-line)
@@ -569,6 +569,79 @@ in to, Use for LispM once there are models."
     (with-temp-buffer
       (insert-file-contents (expand-file-name file (expand-file-name ".." lispm-rotom-test-directory)))
       (should-not (re-search-forward "lispm-desktop\\|[Pp]latinum" nil t)))))
+
+(defun lispm-rotom-test-button (label)
+  "Return the enabled control labelled LABEL in the current buffer."
+  (let ((position (point-min)) found)
+    (while (and (< position (point-max)) (not found))
+      (when (and (equal (get-text-property position 'lispm-ui-label) label)
+                 (button-at position))
+        (setq found (button-at position)))
+      (setq position (1+ position)))
+    found))
+
+(ert-deftest lispm-rotom-test-dashboard-model-actions ()
+  "Filtered cards keep their model identity and the selected API."
+  (lispm-rotom-test-with-fake
+    (let ((lispm-rotom-state 'ready)
+          (lispm-rotom-accounts '((:provider codex :status authenticated)))
+          (lispm-rotom-models '((codex "first" "second") (grok "other")))
+          used)
+      (with-temp-buffer
+        (lispm-rotom-mode)
+        (setq lispm-rotom-view 'models lispm-rotom-model-filter "SECOND"
+              lispm-rotom-messages t)
+        (cl-letf (((symbol-function 'lispm-rotom-use)
+                   (lambda (model messages) (setq used (list model messages))))
+                  ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
+                  ((symbol-function 'featurep)
+                   (let ((original (symbol-function 'featurep)))
+                     (lambda (feature &rest args)
+                       (or (eq feature 'lispm-core) (apply original feature args))))))
+          (lispm-rotom--print)
+          (should-not (string-match-p "first\\|other" (buffer-string)))
+          (button-activate (lispm-rotom-test-button "Use for LispM"))
+          (should (equal used '("second" t)))
+          (let ((kill-ring nil))
+            (button-activate (lispm-rotom-test-button "Copy model"))
+            (should (equal (car kill-ring) "second"))))))))
+
+(ert-deftest lispm-rotom-test-dashboard-busy ()
+  "Busy service actions and unavailable models cannot be clicked."
+  (lispm-rotom-test-with-fake
+    (let ((lispm-rotom-state 'ready)
+          (lispm-rotom-busy "Restarting…")
+          (lispm-rotom-models '((grok "offline"))))
+      (with-temp-buffer
+        (lispm-rotom-mode)
+        (lispm-rotom--print)
+        (should-not (lispm-rotom-test-button "Start"))
+        (should-not (lispm-rotom-test-button "Restart"))
+        (should-not (lispm-rotom-test-button "Sign in…"))
+        (should-not (lispm-rotom-test-button "Use for LispM"))
+        (should (lispm-rotom-test-button "Copy model"))))))
+
+(ert-deftest lispm-rotom-test-dashboard-provider-and-refresh ()
+  "Refresh preserves filters and focus on the same model action."
+  (lispm-rotom-test-with-fake
+    (let ((lispm-rotom-state 'ready)
+          (lispm-rotom-models '((codex "one") (grok "two"))))
+      (with-temp-buffer
+        (lispm-rotom-mode)
+        (setq lispm-rotom-view 'models lispm-rotom-provider-filter 'grok)
+        (lispm-rotom--print)
+        (should-not (string-match-p "  one" (buffer-string)))
+        (goto-char (button-start (lispm-rotom-test-button "Copy model")))
+        (lispm-rotom--print)
+        (should (equal (lispm-rotom-item) '(model . "two")))
+        (should (equal (get-text-property (point) 'lispm-ui-label) "Copy model"))
+        (should (eq lispm-rotom-provider-filter 'grok))
+        (setq lispm-rotom-model-filter "absent")
+        (lispm-rotom--print)
+        (should (string-match-p "No matching models" (buffer-string)))
+        (button-activate (lispm-rotom-test-button "Clear"))
+        (should (string-empty-p lispm-rotom-model-filter))
+        (should (string-match-p "  two" (buffer-string)))))))
 
 (provide 'lispm-rotom-test)
 ;;; lispm-rotom-test.el ends here
