@@ -2,11 +2,12 @@ EMACS ?= emacs
 # LispM Kit, with which Rotom declares its commands: a checkout beside
 # this one by default.
 LISPM_KIT ?= ../lispm-kit
+LISPM_UI ?= ../lispm-ui
 # lisp/ of lispm-agent, a checkout beside this one by default.  Rotom
 # needs it not; with it on the load path, the tests of LispM's backends
 # run too.
 LISPM_AGENT ?= ../lisp_machine/lisp
-LOAD_PATH = -L . -L $(LISPM_KIT) $(foreach dir,$(wildcard $(LISPM_AGENT)),-L $(dir))
+LOAD_PATH = -L . -L $(LISPM_KIT) -L $(LISPM_UI) $(foreach dir,$(wildcard $(LISPM_AGENT)),-L $(dir))
 
 FILES = lispm-rotom.el lispm-rotom-ui.el
 
@@ -21,6 +22,6 @@ test:
 # A check: the .elc files are removed again, as they would shadow the
 # sources of a checkout Emacs loads from.
 compile:
-	$(EMACS) -Q --batch -L . -L $(LISPM_KIT) --eval '(setq byte-compile-error-on-warn t)' \
+	$(EMACS) -Q --batch -L . -L $(LISPM_KIT) -L $(LISPM_UI) --eval '(setq byte-compile-error-on-warn t)' \
 	  -f batch-byte-compile $(FILES); \
 	status=$$?; rm -f *.elc; exit $$status
