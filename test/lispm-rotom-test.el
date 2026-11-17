@@ -625,7 +625,7 @@ in to, Use for LispM once there are models."
   "Refresh preserves filters and focus on the same model action."
   (lispm-rotom-test-with-fake
     (let ((lispm-rotom-state 'ready)
-          (lispm-rotom-models '((codex "one") (grok "two"))))
+          (lispm-rotom-models '((codex "one") (grok "two" "three"))))
       (with-temp-buffer
         (lispm-rotom-mode)
         (setq lispm-rotom-view 'models lispm-rotom-provider-filter 'grok)
@@ -635,6 +635,14 @@ in to, Use for LispM once there are models."
         (lispm-rotom--print)
         (should (equal (lispm-rotom-item) '(model . "two")))
         (should (equal (get-text-property (point) 'lispm-ui-label) "Copy model"))
+        (should (eql lispm-ui-focus (point)))
+        (should (equal (get-text-property (point) 'display)
+                       (get-text-property (point) 'lispm-ui-focused)))
+        ;; n and p step from model card to model card, not line by line inside one.
+        (lispm-rotom-next-line)
+        (should (equal (lispm-rotom-item) '(model . "three")))
+        (lispm-rotom-previous-line)
+        (should (equal (lispm-rotom-item) '(model . "two")))
         (should (eq lispm-rotom-provider-filter 'grok))
         (setq lispm-rotom-model-filter "absent")
         (lispm-rotom--print)

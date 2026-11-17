@@ -87,8 +87,14 @@
 (defvar-local lispm-rotom-provider-filter 'all
   "Provider shown in this window, or `all'.")
 
-(defvar-local lispm-rotom-messages nil
+(defvar-local lispm-rotom-messages :unset
   "Whether model buttons choose Anthropic Messages for LispM.")
+
+(defun lispm-rotom--messages-p ()
+  "Return whether model selection chooses Anthropic Messages for LispM."
+  (if (eq lispm-rotom-messages :unset)
+      (eq (plist-get (lispm-rotom-lispm) :backend) 'rotom-messages)
+    lispm-rotom-messages))
 
 (defun lispm-rotom-filter-models ()
   "Filter the model list by a literal name."
@@ -155,11 +161,12 @@
     (lispm-rotom--button "Clear"
                          (lambda () (setq lispm-rotom-model-filter "") (lispm-rotom--print))))
   (insert "\n\n  ")
-  (lispm-ui-insert-popup-button
-   (if lispm-rotom-messages "Anthropic Messages" "OpenAI Chat Completions")
-   '((chat . "OpenAI Chat Completions") (messages . "Anthropic Messages"))
-   (lambda (api) (setq lispm-rotom-messages (eq api 'messages)) (lispm-rotom--print))
-   :current (if lispm-rotom-messages 'messages 'chat))
+  (let ((messages (lispm-rotom--messages-p)))
+    (lispm-ui-insert-popup-button
+     (if messages "Anthropic Messages" "OpenAI Chat Completions")
+     '((chat . "OpenAI Chat Completions") (messages . "Anthropic Messages"))
+     (lambda (api) (setq lispm-rotom-messages (eq api 'messages)) (lispm-rotom--print))
+     :current (if messages 'messages 'chat)))
   (insert "\n  Applies to new LispM conversations; use /model in an existing chat.\n")
   (unless (string-empty-p lispm-rotom-model-filter)
     (insert (format "  Matching: %s\n" lispm-rotom-model-filter)))
@@ -182,12 +189,23 @@
   (interactive "p")
   (let ((n (or n 1)))
     (dotimes (_ (abs n))
-      (let ((start (point)))
+      (let ((start (point))
+            (current (lispm-rotom-item)))
         (forward-line (if (< n 0) -1 1))
-        (while (and (not (lispm-rotom-item)) (not (if (< n 0) (bobp) (eobp))))
+        (while (and (or (not (lispm-rotom-item))
+                        (equal (lispm-rotom-item) current))
+                    (not (if (< n 0) (bobp) (eobp))))
           (forward-line (if (< n 0) -1 1)))
-        (unless (lispm-rotom-item)
-          (goto-char start))))))
+        (if (or (not (lispm-rotom-item))
+                (equal (lispm-rotom-item) current))
+            (goto-char start)
+          (when (< n 0)
+            (let ((target (lispm-rotom-item)))
+              (while (and (not (bobp))
+                          (save-excursion
+                            (forward-line -1)
+                            (equal (lispm-rotom-item) target)))
+                (forward-line -1)))))))))
 
 (defun lispm-rotom-previous-line (&optional n)
   "Go to the Nth previous line about something."
@@ -320,7 +338,7 @@
                "Use for LispM"
                (lambda ()
                  (when (yes-or-no-p (format "Use %s for new LispM conversations? " model))
-                   (lispm-rotom-use model lispm-rotom-messages)))
+                   (lispm-rotom-use model (lispm-rotom--messages-p))))
                (or (not served) (not (featurep 'lispm-core)) lispm-rotom-busy))
               (lispm-rotom--button "Copy model"
                                    (lambda () (kill-new model) (message "Copied %s" model)))
@@ -337,6 +355,7 @@
         (control (get-text-property (point) 'help-echo))
         (inhibit-read-only t))
     (erase-buffer)
+    (setq lispm-ui-focus nil)
     (pcase lispm-rotom-state
       ('missing (lispm-rotom--insert-missing))
       ((or 'nil 'reading) (insert (propertize "Reading Rotom…" 'face 'lispm-rotom-dim) "\n"))
@@ -363,17 +382,18 @@
        (when (memq lispm-rotom-view '(all accounts)) (lispm-rotom--insert-accounts))
        (when (memq lispm-rotom-view '(all models)) (lispm-rotom--insert-models))))
     (goto-char (point-min))
-    (if-let* ((match (and item (text-property-search-forward 'lispm-rotom-item item #'equal))))
-        (progn (goto-char (prop-match-beginning match))
-               (move-to-column column))
-      (goto-char (point-min))
-      (lispm-rotom-next-line))
-    (when control
-      (let* ((start (if item (line-beginning-position) (point-min)))
-             (end (if item (or (next-single-property-change start 'lispm-rotom-item)
-                              (point-max)) (point-max)))
-             (position (text-property-any start end 'help-echo control)))
-        (when position (goto-char position))))))
+    (let ((match (and item (text-property-search-forward 'lispm-rotom-item item #'equal))))
+      (if match
+          (progn (goto-char (prop-match-beginning match))
+                 (move-to-column column))
+        (goto-char (point-min))
+        (lispm-rotom-next-line))
+      (when (and control (or match (not item)))
+        (let* ((start (if match (prop-match-beginning match) (point-min)))
+               (end (if match (prop-match-end match) (point-max)))
+               (position (text-property-any start end 'help-echo control)))
+          (when position (goto-char position)))))
+    (lispm-ui-show-focus)))
 
 (defun lispm-rotom--refresh ()
   "Show what Rotom knows now in its window.
@@ -411,13 +431,14 @@ This is one of `lispm-rotom-changed-hook'."
 (defun lispm-rotom-use-here ()
   "Have LispM's agents use the model on the line, or one asked for."
   (interactive)
-  (let ((model (lispm-rotom--item-of 'model)))
+  (let ((model (lispm-rotom--item-of 'model))
+        (messages (lispm-rotom--messages-p)))
     (if (and (stringp model)
              (yes-or-no-p (format "Have LispM's agents use %s through Rotom? " model)))
-        (lispm-rotom-use model lispm-rotom-messages)
+        (lispm-rotom-use model messages)
       (unless model
         (lispm-rotom-use (lispm-rotom--read-model "LispM's agents use")
-                         lispm-rotom-messages)))))
+                         messages)))))
 
 (defun lispm-rotom-act ()
   "Do what the line at point is for: sign in to its account, have
@@ -555,8 +576,6 @@ and the model LispM's agents use.
   (setq buffer-display-table (or (copy-sequence buffer-display-table) (make-display-table)))
   (set-display-table-slot buffer-display-table 'truncation ?…)
   (setq-local line-spacing 0.2)
-  (setq lispm-rotom-messages
-        (eq (plist-get (lispm-rotom-lispm) :backend) 'rotom-messages))
   (add-hook 'post-command-hook #'lispm-ui-show-focus nil t)
   (lispm-ui-palette-follow-theme)
   (setq-local revert-buffer-function #'lispm-rotom-reload))
