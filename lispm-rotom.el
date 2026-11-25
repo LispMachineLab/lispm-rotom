@@ -5,7 +5,7 @@
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-rotom
 ;; Version: 0.2.1
-;; Package-Requires: ((emacs "30.1") (lispm-ui "0.8.0"))
+;; Package-Requires: ((emacs "30.1") (lispm-ui "0.12.0"))
 ;; Keywords: tools, comm
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -46,9 +46,9 @@
 ;; this machine that nothing serves.  While it asks, Emacs serves that
 ;; address, so the browser lands on Emacs and Rotom gets the address
 ;; without a copy and paste.  Where Emacs cannot, as when another
-;; program holds the port, the address is asked in the minibuffer.
-;; Vercel's AI Gateway takes a key, read in the minibuffer and handed to
-;; Rotom on its standard input, never kept.
+;; program holds the port, the address is asked in a prompt.
+;; Vercel's AI Gateway takes a key, asked in a password prompt and
+;; handed to Rotom on its standard input, never kept.
 ;;
 ;; Rotom's two sides are backends of LispM Agent: `rotom', Chat
 ;; Completions, and `rotom-messages', Messages.  They are added to
@@ -67,6 +67,7 @@
 (require 'browse-url)
 (require 'url-parse)
 (require 'url-util)
+(require 'lispm-ui-ask)
 
 (defvar lispm-backends)
 (defvar lispm-backend)
@@ -687,16 +688,17 @@ Rotom; other requests, as for an icon, are not found."
 
 (defun lispm-rotom-paste-address (&optional address)
   "Give Rotom ADDRESS, the one the browser landed on once signed in.
-Asked in the minibuffer, for when the browser did not come back to Emacs
+Asked in a prompt, for when the browser did not come back to Emacs
 by itself."
   (interactive)
   (let ((sign-in lispm-rotom-signing-in))
     (unless (and sign-in (process-live-p (lispm-rotom-sign-in-process sign-in)))
       (user-error "No account is being signed in to"))
     (let ((address (or address
-                       (read-string (format "Address your browser shows, once signed in to %s: "
-                                            (lispm-rotom-provider-name
-                                             (lispm-rotom-sign-in-provider sign-in)))))))
+                       (lispm-ui-read-string
+                        (format "Address your browser shows, once signed in to %s: "
+                                (lispm-rotom-provider-name
+                                 (lispm-rotom-sign-in-provider sign-in)))))))
       (when (string-blank-p address)
         (user-error "No address given"))
       (lispm-rotom--answer sign-in (string-trim address)))))
@@ -775,9 +777,12 @@ why it failed.  A daemon running restarts to serve an account new to it."
   "Sign in to PROVIDER's account, in the browser, or with its key.
 CALLBACK is called after, with nil, or with why it failed."
   (interactive
-   (list (intern (completing-read "Sign in to: "
-                                  (mapcar (lambda (entry) (symbol-name (car entry))) lispm-rotom-providers)
-                                  nil t))))
+   (if-let* ((chosen (lispm-ui-choose
+                      (mapcar (lambda (entry) (cons (car entry) (plist-get (cdr entry) :name)))
+                              lispm-rotom-providers)
+                      nil nil "Sign in to")))
+       (list (car chosen))
+     (signal 'quit nil)))
   (unless (lispm-rotom-installed-p)
     (user-error "Rotom is not installed"))
   (when (and lispm-rotom-signing-in
@@ -788,7 +793,7 @@ CALLBACK is called after, with nil, or with why it failed."
     (unless properties
       (user-error "Rotom serves no account of %s" provider))
     (if (eq (plist-get properties :sign-in) 'key)
-        (let ((key (read-passwd (format "%s key: " (plist-get properties :name)))))
+        (let ((key (lispm-ui-read-passwd (format "%s key: " (plist-get properties :name)))))
           (when (string-empty-p key)
             (user-error "No key given"))
           (lispm-rotom--busy (format "Signing in to %s…" (plist-get properties :name)))
@@ -862,8 +867,7 @@ it through an account signed in to."
   (let* ((lispm (lispm-rotom-lispm))
          (default (or (and (plist-get lispm :rotom) (plist-get lispm :model))
                       (lispm-rotom-fallback-model))))
-    (completing-read (format-prompt prompt default) (lispm-rotom-model-ids)
-                     nil nil nil nil default)))
+    (lispm-ui-read-string prompt :default default :choices (lispm-rotom-model-ids))))
 
 (defun lispm-rotom-use (model &optional messages)
   "Have LispM's agents use MODEL through Rotom, from now on.
