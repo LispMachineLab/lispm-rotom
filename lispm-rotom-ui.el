@@ -49,6 +49,7 @@
 (require 'subr-x)
 (require 'text-property-search)
 (require 'lispm-kit-commands)
+(require 'lispm-ui-ask)
 (require 'lispm-ui-controls)
 (require 'lispm-ui-menu)
 (require 'lispm-rotom)
@@ -100,7 +101,7 @@
   "Filter the model list by a literal name."
   (interactive)
   (setq lispm-rotom-model-filter
-        (read-string "Find model: " lispm-rotom-model-filter)
+        (lispm-ui-read-string "Find model: " :initial lispm-rotom-model-filter)
         lispm-rotom-view 'models)
   (lispm-rotom--print))
 
@@ -337,7 +338,8 @@
               (lispm-rotom--button
                "Use for LispM"
                (lambda ()
-                 (when (yes-or-no-p (format "Use %s for new LispM conversations? " model))
+                 (when (lispm-ui-confirm (format "Use %s for new LispM conversations?" model)
+                                         nil "Use Model")
                    (lispm-rotom-use model (lispm-rotom--messages-p))))
                (or (not served) (not (featurep 'lispm-core)) lispm-rotom-busy))
               (lispm-rotom--button "Copy model"
@@ -418,7 +420,9 @@ This is one of `lispm-rotom-changed-hook'."
   "Start Rotom's daemon, or stop it while it runs."
   (interactive)
   (cond ((not (lispm-rotom-running-p)) (lispm-rotom-start))
-        ((yes-or-no-p "Stop Rotom's daemon?  Programs using it, LispM's agents among them, reach no model then. ")
+        ((lispm-ui-confirm "Stop Rotom's daemon?"
+                           "Programs using it, LispM's agents among them, reach no model then."
+                           "Stop")
          (lispm-rotom-stop))))
 
 (defun lispm-rotom-sign-in-here ()
@@ -434,7 +438,8 @@ This is one of `lispm-rotom-changed-hook'."
   (let ((model (lispm-rotom--item-of 'model))
         (messages (lispm-rotom--messages-p)))
     (if (and (stringp model)
-             (yes-or-no-p (format "Have LispM's agents use %s through Rotom? " model)))
+             (lispm-ui-confirm (format "Have LispM's agents use %s through Rotom?" model)
+                               nil "Use Model"))
         (lispm-rotom-use model messages)
       (unless model
         (lispm-rotom-use (lispm-rotom--read-model "LispM's agents use")
@@ -447,7 +452,8 @@ LispM's agents use its model, start or stop the daemon."
   (pcase (lispm-rotom-item)
     (`(account . ,provider)
      (when (or (not (lispm-rotom-signed-in-p provider))
-               (yes-or-no-p (format "Sign in to %s again? " (lispm-rotom-provider-name provider))))
+               (lispm-ui-confirm (format "Sign in to %s again?" (lispm-rotom-provider-name provider))
+                                 nil "Sign In"))
        (lispm-rotom-sign-in provider)))
     (`(model . ,_) (lispm-rotom-use-here))
     ('(daemon) (lispm-rotom-start-or-stop))
@@ -483,7 +489,9 @@ its daemon.  It takes some minutes; what Cargo says shows in a buffer."
     (user-error "Rotom is not installed"))
   (unless (executable-find "cargo")
     (user-error "Rotom is updated with Cargo, which is not installed"))
-  (when (yes-or-no-p "Update Rotom?  Cargo builds its latest release, which takes some minutes. ")
+  (when (lispm-ui-confirm "Update Rotom?"
+                          "Cargo builds its latest release, which takes some minutes."
+                          "Update")
     (let ((buffer (get-buffer-create "*Rotom Update*")))
       (with-current-buffer buffer
         (let ((inhibit-read-only t)) (erase-buffer))

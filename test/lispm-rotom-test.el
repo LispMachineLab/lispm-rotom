@@ -651,5 +651,72 @@ in to, Use for LispM once there are models."
         (should (string-empty-p lispm-rotom-model-filter))
         (should (string-match-p "  two" (buffer-string)))))))
 
+(ert-deftest lispm-rotom-test-prompts-use-lispm-ui ()
+  "Provider, model, key, filter, paste-address and confirm prompts use `lispm-ui'."
+  (lispm-rotom-test-with-fake
+    (let ((lispm-rotom-state 'ready)
+          (lispm-rotom-accounts '((:provider codex :status authenticated)))
+          (lispm-rotom-models '((codex "gpt-6.1-sol") (grok "grok-4.7")))
+          (chosen-provider nil)
+          (key-calls 0)
+          (model-calls nil)
+          (alerts nil))
+      (let ((lispm-ui-choose-function
+             (lambda (choices &rest _)
+               (push choices chosen-provider)
+               (list (caar choices))))
+            (lispm-ui-form-prompt-function
+             (lambda (prompt &rest opts)
+               (cond
+                ((plist-get opts :password)
+                 (cl-incf key-calls)
+                 (signal 'quit nil))
+                ((plist-get opts :choices)
+                 (push (list prompt (plist-get opts :default) (plist-get opts :choices))
+                       model-calls)
+                 "gpt-6.1-sol")
+                (t "sol")))))
+        ;; Provider interactive chooser + key password prompt
+        (let ((lispm-rotom-providers '((vercel :name "Vercel AI Gateway" :sign-in key))))
+          (should (eq (condition-case nil (progn (call-interactively #'lispm-rotom-sign-in) nil)
+                        (quit 'quitted))
+                      'quitted)))
+        (should (= key-calls 1))
+        (should (equal chosen-provider '(((vercel . "Vercel AI Gateway")))))
+        ;; Model chooser
+        (should (equal (lispm-rotom--read-model "LispM's agents use") "gpt-6.1-sol"))
+        (should (= (length model-calls) 1))
+        ;; Dashboard model filter & confirmations
+        (with-temp-buffer
+          (lispm-rotom-mode)
+          (lispm-rotom-filter-models)
+          (should (equal lispm-rotom-model-filter "sol"))
+          (setq lispm-rotom-model-filter "")
+          (lispm-rotom--print)
+          (let ((lispm-ui-alert-function
+                 (lambda (_icon msg buttons _detail)
+                   (push (list msg (mapcar #'car buttons)) alerts)
+                   'cancel)))
+            (cl-letf (((symbol-function 'lispm-rotom-running-p) #'always)
+                      ((symbol-function 'lispm-rotom-use) #'ignore))
+              (lispm-rotom-start-or-stop)
+              (goto-char (point-min))
+              (search-forward "gpt-6.1-sol")
+              (lispm-rotom-use-here)
+              (goto-char (point-min))
+              (search-forward "OpenAI (Codex)")
+              (lispm-rotom-act)))
+          (should (= (length alerts) 3))))
+      ;; Paste-address prompt
+      (let* ((pasted nil)
+             (sign-in (lispm-rotom-sign-in--create :provider 'grok :state 'browser :process nil))
+             (lispm-rotom-signing-in sign-in)
+             (lispm-ui-form-prompt-function (lambda (&rest _) "http://127.0.0.1/cb")))
+        (cl-letf (((symbol-function 'process-live-p) #'always)
+                  ((symbol-function 'lispm-rotom--answer)
+                   (lambda (_s addr) (setq pasted addr))))
+          (lispm-rotom-paste-address))
+        (should (equal pasted "http://127.0.0.1/cb"))))))
+
 (provide 'lispm-rotom-test)
 ;;; lispm-rotom-test.el ends here
